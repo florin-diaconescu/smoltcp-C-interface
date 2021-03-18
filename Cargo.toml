@@ -1,0 +1,28 @@
+[package]
+name = "helloworld"
+version = "0.1.0"
+authors = ["Florin Diaconescu <florin.diaconescu@stud.acs.upb.ro>"]
+edition = "2018"
+
+[dependencies]
+managed = { version = "0.8", default-features = false, features = ["map"] }
+byteorder = { version = "1.0", default-features = false }
+log = { version = "0.4.4", default-features = false, optional = true }
+libc = { version = "0.2.18", optional = true }
+bitflags = { version = "1.0", default-features = false }
+smoltcp = { git = "https://github.com/florin-diaconescu/smoltcp", branch = "master" }
+
+[dev-dependencies]
+env_logger = "0.5"
+getopts = "0.2"
+rand = "0.3"
+url = "1.0"
+
+[lib]
+crate-type = ["staticlib"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
