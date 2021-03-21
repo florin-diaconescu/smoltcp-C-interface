@@ -5,6 +5,7 @@ use::smoltcp::phy::wait as phy_wait;
 use::smoltcp::phy::{Device, RxToken, RawSocket};
 use::smoltcp::time::Instant;
 use::smoltcp::socket::{SocketHandle};
+use smoltcp::socket::Socket;
 
 // defining ip address structs
 #[repr(C)]
@@ -62,10 +63,58 @@ impl Into<Ipv6Address> for Ipv6AddressC {
 }
 
 #[no_mangle]
-pub extern "C" fn add_socket (smol_stack: &mut Stack) -> SmolSocket{
-    let stack = Stack::new();
-    SmolSocket {
-        socket_type: SocketType::UDP,
+// returns the socket handle
+pub extern "C" fn add_socket (stack: *mut Stack, socket_type: u8) -> u8{
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+    let socket_type = match socket_type {
+        0 => SocketType::TCP,
+        1 => SocketType::UDP,
+        _ => panic!("Socket type not supported!"),
+    };
+    Stack::add_socket_to_stack(stack, SmolSocket {
+        socket_type,
         socket_handle: Default::default(),
+        rx_buffer: 65535,
+        tx_buffer: 65535,
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn add_socket_with_buffer (stack: *mut Stack, socket_type: u8,
+                                          rx_buffer: usize, tx_buffer: usize) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+    let socket_type = match socket_type {
+        0 => SocketType::TCP,
+        1 => SocketType::UDP,
+        _ => panic!("Socket type not supported!"),
+    };
+    Stack::add_socket_to_stack(stack, SmolSocket {
+        socket_type,
+        socket_handle: Default::default(),
+        rx_buffer,
+        tx_buffer,
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn init_stack<'a>() -> *mut Stack<'a> {
+    Box::into_raw(Box::new(Stack::new()))
+}
+
+#[no_mangle]
+pub extern "C" fn destroy_stack<'a>(stack: *mut Stack){
+    if stack.is_null() {
+        return;
+    }
+
+    // unsafe, because a double free may occur
+    unsafe {
+        Box::from_raw(stack);
     }
 }

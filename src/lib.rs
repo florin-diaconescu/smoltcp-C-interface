@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 pub mod smoltcp_c_interface;
 pub mod smoltcp_stack;
 
