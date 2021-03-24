@@ -6,6 +6,7 @@ use::smoltcp::phy::{Device, RxToken, RawSocket};
 use::smoltcp::time::Instant;
 use::smoltcp::socket::{SocketHandle};
 use smoltcp::socket::Socket;
+use std::net::IpAddr;
 
 // defining ip address structs
 #[repr(C)]
@@ -72,6 +73,7 @@ pub extern "C" fn add_socket (stack: *mut Stack, socket_type: u8) -> u8{
     let socket_type = match socket_type {
         0 => SocketType::TCP,
         1 => SocketType::UDP,
+        2 => SocketType::RAW,
         _ => panic!("Socket type not supported!"),
     };
     Stack::add_socket_to_stack(stack, SmolSocket {
@@ -100,6 +102,27 @@ pub extern "C" fn add_socket_with_buffer (stack: *mut Stack, socket_type: u8,
         rx_buffer,
         tx_buffer,
     })
+}
+
+#[no_mangle]
+pub extern "C" fn add_ipv4_address (stack: *mut Stack, a0: u8, a1: u8,
+                                    a2: u8, a3: u8, netmask: u8) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+    Stack::add_ip_address(stack, IpAddress::v4(a0, a1, a2, a3), netmask)
+}
+
+#[no_mangle]
+pub extern "C" fn add_ipv6_address(stack: *mut Stack, a0: u16, a1: u16,
+                                   a2: u16, a3: u16, a4: u16, a5: u16,
+                                   a6: u16, a7: u16, netmask: u8) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+    Stack::add_ip_address(stack, IpAddress::v6(a0, a1, a2, a3, a4, a5, a6, a7), netmask)
 }
 
 #[no_mangle]

@@ -17,6 +17,7 @@ use std::hash::BuildHasherDefault;
 pub enum SocketType {
     UDP,
     TCP,
+    RAW,
 }
 
 // struct for smoltcp's stack
@@ -25,15 +26,19 @@ pub struct Stack<'a> {
     current_socket_handle: u8,
     // we need a mapping between uint8_t socket handle and SocketHandle
     handle_map: HashMap::<u8, SocketHandle, BuildNoHashHasher<u8>>,
+    // list for remembering ip_addresses Added
+    ip_addrs: Vec<IpCidr>,
 }
 
 impl<'a> Stack<'a> {
     pub fn new () -> Stack<'a> {
         let socket_set = SocketSet::new(vec![]);
+        let ip_addrs = Vec::new();
         Stack {
             socket_set,
             current_socket_handle: 0,
             handle_map: HashMap::with_hasher(BuildNoHashHasher::default()),
+            ip_addrs
         }
     }
     pub fn add_socket_to_stack(stack: &mut Stack, smol_socket: SmolSocket) -> u8 {
@@ -46,12 +51,24 @@ impl<'a> Stack<'a> {
                 let socket = TcpSocket::new(rx_buffer, tx_buffer);
                 let socket_handle = stack.socket_set.add(socket);
                 stack.handle_map.insert(stack.current_socket_handle, socket_handle);
-                0
+                println!("A new socket was added with handle {}!", stack.current_socket_handle);
+
+                // TODO atomic might be needed here
+                stack.current_socket_handle = stack.current_socket_handle + 1;
+                stack.current_socket_handle - 1
             }
             SocketType::UDP => {
                 0
             }
+            SocketType::RAW => {
+                0
+            }
         }
+    }
+    pub fn add_ip_address(stack: &mut Stack, ip_address: IpAddress, netmask: u8) -> u8 {
+        stack.ip_addrs.push(IpCidr::new(ip_address, netmask));
+        println!("{:?}", stack.ip_addrs);
+        0
     }
 
     // generate a new socket handle

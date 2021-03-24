@@ -31,9 +31,19 @@ extern smoltcp_stack_t *init_stack(void);
 extern void destroy_stack(smoltcp_stack_t *stack);
 
 // add_socket with default rx_buffer and tx_buffer size
-extern uint8_t add_socket(smoltcp_stack_t *stack, uint8_t type);
+extern uint8_t add_socket(smoltcp_stack_t *stack, uint16_t type);
 
 // add_socket with custom rx_buffer and tx_buffer size
-extern uint8_t add_socket_with_buffer(smoltcp_stack_t *stack, uint8_t type, uint8_t rx_buffer, uint8_t tx_buffer);
+extern uint8_t add_socket_with_buffer(smoltcp_stack_t *stack, uint16_t type,
+                                      uint16_t rx_buffer, uint16_t tx_buffer);
+
+// add ipv4 address
+extern uint8_t add_ipv4_address(smoltcp_stack_t *stack, uint8_t a0, uint8_t a1,
+                                uint8_t a2, uint8_t a3, uint8_t netmask);
+
+// add ipv6 address
+extern uint8_t add_ipv6_address(smoltcp_stack_t *stack, uint8_t a0, uint8_t a1,
+                                uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5,
+                                uint8_t a6, uint8_t a7, uint8_t netmask);
 
 #endif
