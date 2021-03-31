@@ -26,7 +26,9 @@ typedef struct SmolSocket {
 typedef struct smoltcp_stack smoltcp_stack_t;
 
 // function definitions
-extern smoltcp_stack_t *init_stack(void);
+extern smoltcp_stack_t *init_tap_stack(char *interface_name);
+
+extern smoltcp_stack_t *init_loopback_stack(void);
 
 extern void destroy_stack(smoltcp_stack_t *stack);
 
@@ -45,5 +47,9 @@ extern uint8_t add_ipv4_address(smoltcp_stack_t *stack, uint8_t a0, uint8_t a1,
 extern uint8_t add_ipv6_address(smoltcp_stack_t *stack, uint8_t a0, uint8_t a1,
                                 uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5,
                                 uint8_t a6, uint8_t a7, uint8_t netmask);
+
+extern uint8_t add_ethernet_address(smoltcp_stack_t *stack, uint8_t a0, uint8_t a1,
+                                    uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5);
+
 
 #endif

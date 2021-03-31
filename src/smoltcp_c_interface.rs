@@ -1,12 +1,18 @@
 #![allow(unused_imports)]
 use super::smoltcp_stack::{SmolSocket, SocketType, Stack};
-use::smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr, Ipv6Address, IpEndpoint, EthernetFrame};
+use::smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr, Ipv6Address, IpEndpoint};
+use smoltcp::wire::{EthernetAddress, EthernetFrame};
 use::smoltcp::phy::wait as phy_wait;
 use::smoltcp::phy::{Device, RxToken, RawSocket};
 use::smoltcp::time::Instant;
 use::smoltcp::socket::{SocketHandle};
+use::smoltcp::iface::{EthernetInterfaceBuilder, NeighborCache};
 use smoltcp::socket::Socket;
 use std::net::IpAddr;
+use std::ffi::{CString, CStr};
+use std::os::raw::c_char;
+use smoltcp::phy::TapInterface;
+use crate::smoltcp_stack::StackType;
 
 // defining ip address structs
 #[repr(C)]
@@ -65,27 +71,40 @@ impl Into<Ipv6Address> for Ipv6AddressC {
 
 #[no_mangle]
 // returns the socket handle
-pub extern "C" fn add_socket (stack: *mut Stack, socket_type: u8) -> u8{
+pub extern "C" fn add_socket(stack: *mut StackType, socket_type: u8) -> u8 {
     let stack = unsafe {
         assert!(!stack.is_null());
         &mut *stack
     };
+
     let socket_type = match socket_type {
         0 => SocketType::TCP,
         1 => SocketType::UDP,
         2 => SocketType::RAW,
         _ => panic!("Socket type not supported!"),
     };
-    Stack::add_socket_to_stack(stack, SmolSocket {
-        socket_type,
-        socket_handle: Default::default(),
-        rx_buffer: 65535,
-        tx_buffer: 65535,
-    })
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::add_socket_to_stack(stack, SmolSocket {
+                socket_type,
+                socket_handle: Default::default(),
+                rx_buffer: 65535,
+                tx_buffer: 65535,
+            })
+        },
+        StackType::Loopback(stack) => {
+            Stack::add_socket_to_stack(stack, SmolSocket {
+                socket_type,
+                socket_handle: Default::default(),
+                rx_buffer: 65535,
+                tx_buffer: 65535,
+            })
+        },
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn add_socket_with_buffer (stack: *mut Stack, socket_type: u8,
+pub extern "C" fn add_socket_with_buffer (stack: *mut StackType, socket_type: u8,
                                           rx_buffer: usize, tx_buffer: usize) -> u8 {
     let stack = unsafe {
         assert!(!stack.is_null());
@@ -96,42 +115,110 @@ pub extern "C" fn add_socket_with_buffer (stack: *mut Stack, socket_type: u8,
         1 => SocketType::UDP,
         _ => panic!("Socket type not supported!"),
     };
-    Stack::add_socket_to_stack(stack, SmolSocket {
-        socket_type,
-        socket_handle: Default::default(),
-        rx_buffer,
-        tx_buffer,
-    })
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::add_socket_to_stack(stack, SmolSocket {
+                socket_type,
+                socket_handle: Default::default(),
+                rx_buffer,
+                tx_buffer,
+            })
+        },
+        StackType::Loopback(stack) => {
+            Stack::add_socket_to_stack(stack, SmolSocket {
+                socket_type,
+                socket_handle: Default::default(),
+                rx_buffer,
+                tx_buffer,
+            })
+        },
+    }
+
 }
 
 #[no_mangle]
-pub extern "C" fn add_ipv4_address (stack: *mut Stack, a0: u8, a1: u8,
+pub extern "C" fn add_ipv4_address(stack: *mut StackType, a0: u8, a1: u8,
                                     a2: u8, a3: u8, netmask: u8) -> u8 {
     let stack = unsafe {
         assert!(!stack.is_null());
         &mut *stack
     };
-    Stack::add_ip_address(stack, IpAddress::v4(a0, a1, a2, a3), netmask)
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::add_ip_address(stack, IpAddress::v4(a0, a1, a2, a3), netmask)
+        },
+        StackType::Loopback(stack) => {
+            Stack::add_ip_address(stack, IpAddress::v4(a0, a1, a2, a3), netmask)
+        },
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn add_ipv6_address(stack: *mut Stack, a0: u16, a1: u16,
+pub extern "C" fn add_ipv6_address(stack: *mut StackType, a0: u16, a1: u16,
                                    a2: u16, a3: u16, a4: u16, a5: u16,
                                    a6: u16, a7: u16, netmask: u8) -> u8 {
     let stack = unsafe {
         assert!(!stack.is_null());
         &mut *stack
     };
-    Stack::add_ip_address(stack, IpAddress::v6(a0, a1, a2, a3, a4, a5, a6, a7), netmask)
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::add_ip_address(stack, IpAddress::v6(a0, a1, a2, a3, a4, a5, a6, a7), netmask)
+        },
+        StackType::Loopback(stack) => {
+            Stack::add_ip_address(stack, IpAddress::v6(a0, a1, a2, a3, a4, a5, a6, a7), netmask)
+        },
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn init_stack<'a>() -> *mut Stack<'a> {
-    Box::into_raw(Box::new(Stack::new()))
+pub extern "C" fn add_ethernet_address(stack: *mut StackType, a0: u8, a1: u8,
+                                       a2: u8, a3: u8, a4: u8, a5: u8) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::add_ethernet_address(stack, EthernetAddress([a0, a1, a2, a3, a4, a5]))
+        },
+        StackType::Loopback(stack) => {
+            Stack::add_ethernet_address(stack, EthernetAddress([a0, a1, a2, a3, a4, a5]))
+        },
+    }
 }
 
 #[no_mangle]
-pub extern "C" fn destroy_stack<'a>(stack: *mut Stack){
+pub extern "C" fn build_interface(stack: *mut StackType) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+    let stack = match stack {
+        StackType::Tap(stack) => stack,
+        _ => panic!("Stack type not supported!"),
+    };
+    Stack::build_interface(stack)
+}
+
+#[no_mangle]
+pub extern "C" fn init_tap_stack<'a, 'b>(interface_name: *const c_char) -> *mut StackType<'a, 'b> {
+    let c_interface_name = unsafe {
+        assert!(!interface_name.is_null());
+        CStr::from_ptr(interface_name)
+    };
+    let rust_interface_name = c_interface_name.to_str().unwrap();
+    Box::into_raw(Box::new(StackType::new_tap_stack(rust_interface_name)))
+}
+
+#[no_mangle]
+pub extern "C" fn init_loopback_stack<'a, 'b>() -> *mut StackType<'a, 'b> {
+    Box::into_raw(Box::new(StackType::new_loopback_stack()))
+}
+
+#[no_mangle]
+pub extern "C" fn destroy_stack<'a>(stack: *mut StackType) {
     if stack.is_null() {
         return;
     }
