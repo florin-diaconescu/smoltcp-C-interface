@@ -19,7 +19,7 @@ int main(int argc, char *argv[])
 //    add_ipv4_address(stack, 192, 168, 69, 2, 24);
 //    add_ipv6_address(stack, 0xfdaa, 0, 0, 0, 0, 0, 0, 1, 64);
 //    add_ethernet_address(stack, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01);
-
+	build_interface(lo_stack);
     destroy_stack(lo_stack);
 	return 0;
 }

@@ -1,19 +1,23 @@
 #![allow(unused_imports)]
+#![allow(dead_code)]
 use::smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr, Ipv6Address, IpEndpoint};
 use smoltcp::wire::{EthernetAddress, EthernetFrame};
 use::smoltcp::phy::wait as phy_wait;
-use::smoltcp::phy::{Device, RxToken, RawSocket};
+use::smoltcp::phy::{Device, RxToken, RawSocket, Medium};
 use::smoltcp::time::Instant;
 use::smoltcp::socket::{SocketSet};
-use::smoltcp::iface::{EthernetInterfaceBuilder, NeighborCache};
+use::smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use super::smoltcp_c_interface::{Ipv4AddressC, Ipv4CidrC};
 use smoltcp::socket::{SocketHandle, TcpSocketBuffer, TcpSocket};
 use std::vec::Vec;
 use std::collections::{HashMap, BTreeMap};
 use nohash::{NoHashHasher, BuildNoHashHasher};
 use std::hash::BuildHasherDefault;
-use smoltcp::phy::{TapInterface, Loopback};
+use smoltcp::phy::{TunTapInterface, Loopback};
 use std::io::Error;
+use std::borrow::{Borrow, BorrowMut};
+use smoltcp::iface::Interface;
+use std::mem;
 
 // enum for socket type
 #[derive(PartialEq, Clone)]
@@ -25,19 +29,19 @@ pub enum SocketType {
 }
 
 pub enum StackType<'a, 'b> {
-    Tap(Stack<'a, 'b, TapInterface>),
+    Tap(Stack<'a, 'b, TunTapInterface>),
     Loopback(Stack<'a, 'b, Loopback>),
 }
 
 impl<'a, 'b> StackType<'a, 'b> {
     pub fn new_tap_stack(interface_name: &str) -> StackType<'a, 'b> {
         println!("{}", interface_name);
-        let device = TapInterface::new(interface_name).unwrap();
+        let device = TunTapInterface::new(interface_name, Medium::Ethernet).unwrap();
         let stack = Stack::new(device);
         StackType::Tap(stack)
     }
     pub fn new_loopback_stack() -> StackType<'a, 'b> {
-        let device = Loopback::new();
+        let device = Loopback::new(Medium::Ethernet);
         let stack = Stack::new(device);
         println!("Loopback stack created!");
         StackType::Loopback(stack)
@@ -46,9 +50,9 @@ impl<'a, 'b> StackType<'a, 'b> {
 
 // struct for smoltcp's stack
 // https://doc.rust-lang.org/nomicon/hrtb.html
-pub struct Stack<'a, 'b, DeviceT>
+pub struct Stack<'a, 'b: 'a, DeviceT>
     where DeviceT: for<'d> Device<'d>{
-    device: DeviceT,
+    device: Option<DeviceT>,
     socket_set: SocketSet<'a>,
     current_socket_handle: u8,
     // we need a mapping between uint8_t socket handle and SocketHandle
@@ -58,22 +62,24 @@ pub struct Stack<'a, 'b, DeviceT>
     // ethernet address
     eth_addr: EthernetAddress,
     // neighbour cache
-    neigh_cache: NeighborCache<'b>,
+    neigh_cache: Option<NeighborCache<'b>>,
+    iface: Option<Interface<'a, DeviceT>>,
 }
 
-impl<'a, 'b, DeviceT> Stack<'a, 'b, DeviceT>
+impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
     where DeviceT: for<'d> Device<'d> {
     pub fn new (device: DeviceT) -> Stack<'a, 'b, DeviceT> {
         let socket_set = SocketSet::new(vec![]);
         let ip_addrs = Vec::new();
         Stack {
-            device,
+            device: Some(device),
             socket_set,
             current_socket_handle: 0,
             handle_map: HashMap::with_hasher(BuildNoHashHasher::default()),
             ip_addrs,
             eth_addr: EthernetAddress([0, 0, 0, 0, 0, 0]),
-            neigh_cache: NeighborCache::new(BTreeMap::new()),
+            neigh_cache: None,
+            iface: None,
         }
     }
     pub fn add_socket_to_stack(stack: &mut Stack<DeviceT>, smol_socket: SmolSocket) -> u8 {
@@ -113,7 +119,14 @@ impl<'a, 'b, DeviceT> Stack<'a, 'b, DeviceT>
     }
 
     pub fn build_interface(stack: &mut Stack<DeviceT>) -> u8 {
-        stack.neigh_cache = NeighborCache::new(BTreeMap::new());
+        stack.neigh_cache = Some(NeighborCache::new(BTreeMap::new()));
+        let iface = InterfaceBuilder::new(stack.device.take().unwrap())
+            .ethernet_addr(EthernetAddress::default())
+            .neighbor_cache(stack.neigh_cache.take().unwrap())
+            .ip_addrs(stack.ip_addrs.clone())
+            .finalize();
+        stack.iface = Some(iface);
+        println!("Interface has been built!");
         0
     }
 

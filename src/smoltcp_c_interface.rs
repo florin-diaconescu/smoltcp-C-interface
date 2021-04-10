@@ -6,12 +6,12 @@ use::smoltcp::phy::wait as phy_wait;
 use::smoltcp::phy::{Device, RxToken, RawSocket};
 use::smoltcp::time::Instant;
 use::smoltcp::socket::{SocketHandle};
-use::smoltcp::iface::{EthernetInterfaceBuilder, NeighborCache};
+use::smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::socket::Socket;
 use std::net::IpAddr;
 use std::ffi::{CString, CStr};
 use std::os::raw::c_char;
-use smoltcp::phy::TapInterface;
+use smoltcp::phy::TunTapInterface;
 use crate::smoltcp_stack::StackType;
 
 // defining ip address structs
@@ -195,11 +195,15 @@ pub extern "C" fn build_interface(stack: *mut StackType) -> u8 {
         assert!(!stack.is_null());
         &mut *stack
     };
-    let stack = match stack {
-        StackType::Tap(stack) => stack,
-        _ => panic!("Stack type not supported!"),
-    };
-    Stack::build_interface(stack)
+
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::build_interface(stack)
+        },
+        StackType::Loopback(stack) => {
+            Stack::build_interface(stack)
+        },
+    }
 }
 
 #[no_mangle]
