@@ -176,9 +176,47 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
         let result =
             iface.poll(stack.socket_set.borrow_mut(), stack.clock.elapsed());
         match result {
-            Ok(_) => { println!("{:?}", stack.clock.elapsed()); 0 }
+            Ok(_) => { 0 }
             Err(_) => { 1 }
         }
+    }
+
+    // TODO What if function is called with an UDP socket handle?
+    pub fn listen(stack: &mut Stack<DeviceT>, server_ip: IpAddress,
+                  socket: u8, port: u16) -> u8 {
+        // first, we get the handle from the hashmap
+        let handle = stack.handle_map.get(&socket).unwrap();
+        // then, we get the TcpSocket from the SocketSet
+        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+        if !socket.is_active() && !socket.is_listening() {
+            let endpoint = IpEndpoint::new(server_ip, port);
+            let result = socket.listen(endpoint);
+            match result {
+                Ok(_) => { println!("Socket is listening!"); 0 }
+                Err(_) => { 1 }
+            };
+        }
+        1
+    }
+    // TODO What if function is called with an UDP socket handle?
+    pub fn connect(stack: &mut Stack<DeviceT>, server_ip: IpAddress,
+                   server_port: u16, client_socket: u8, client_port: u16) -> u8 {
+        // first, we get the handle from the hashmap
+        let handle = stack.handle_map.get(&client_socket).unwrap();
+        // then, we get the TcpSocket from the SocketSet
+        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+        if !socket.is_open() {
+            // server endpoint will have the Ip Address specified
+            // client endpoint doesn't require an IpAddress, therefore it is Unspecified
+            let server_endpoint = IpEndpoint::new(server_ip, server_port);
+            let client_endpoint = IpEndpoint::new(IpAddress::Unspecified, client_port);
+            let result = socket.connect(server_endpoint, client_endpoint);
+            match result {
+                Ok(_) => { println!("Client is connected to server!"); 0 }
+                Err(_) => { 1 }
+            };
+        }
+        1
     }
 }
 

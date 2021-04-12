@@ -54,4 +54,9 @@ extern uint8_t add_ethernet_address(smoltcp_stack_t *stack, uint8_t a0, uint8_t 
 extern uint8_t build_interface(smoltcp_stack_t *stack);
 
 extern uint8_t poll_interface(smoltcp_stack_t *stack);
+
+extern uint8_t smoltcp_listen(smoltcp_stack_t *stack, Ipv4AddressC server_ip, uint8_t socket, uint16_t port);
+
+extern uint8_t smoltcp_connect(smoltcp_stack_t *stack, Ipv4AddressC server_ip,
+                               uint16_t server_port, uint8_t socket, uint16_t client_port);
 #endif

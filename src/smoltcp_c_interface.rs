@@ -224,6 +224,46 @@ pub extern "C" fn poll_interface(stack: *mut StackType) -> u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn smoltcp_listen(stack: *mut StackType, server_ip: Ipv4AddressC,
+                                 socket: u8, port: u16) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            let server_ip: Ipv4Address = Into::<Ipv4Address>::into(server_ip);
+            Stack::listen(stack, IpAddress::Ipv4(server_ip), socket, port)
+        },
+        StackType::Loopback(stack) => {
+            let server_ip: Ipv4Address = Into::<Ipv4Address>::into(server_ip);
+            Stack::listen(stack, IpAddress::Ipv4(server_ip), socket, port)
+        },
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn smoltcp_connect(stack: *mut StackType, server_ip: Ipv4AddressC,
+                                  server_port: u16, client_socket: u8, client_port: u16) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            let server_ip: Ipv4Address = Into::<Ipv4Address>::into(server_ip);
+            Stack::connect(stack, IpAddress::Ipv4(server_ip), server_port, client_socket, client_port)
+        },
+        StackType::Loopback(stack) => {
+            let server_ip: Ipv4Address = Into::<Ipv4Address>::into(server_ip);
+            Stack::connect(stack, IpAddress::Ipv4(server_ip), server_port, client_socket, client_port)
+        },
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn init_tap_stack<'a, 'b>(interface_name: *const c_char) -> *mut StackType<'a, 'b> {
     let c_interface_name = unsafe {
         assert!(!interface_name.is_null());
