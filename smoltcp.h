@@ -52,4 +52,6 @@ extern uint8_t add_ethernet_address(smoltcp_stack_t *stack, uint8_t a0, uint8_t 
                                     uint8_t a2, uint8_t a3, uint8_t a4, uint8_t a5);
 
 extern uint8_t build_interface(smoltcp_stack_t *stack);
+
+extern uint8_t poll_interface(smoltcp_stack_t *stack);
 #endif

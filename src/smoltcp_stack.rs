@@ -19,6 +19,28 @@ use std::borrow::{Borrow, BorrowMut};
 use smoltcp::iface::Interface;
 use std::mem;
 
+mod mock {
+    use smoltcp::time::{Duration, Instant};
+    use core::cell::Cell;
+
+    #[derive(Debug)]
+    pub struct Clock(Cell<Instant>);
+
+    impl Clock {
+        pub fn new() -> Clock {
+            Clock(Cell::new(Instant::from_millis(0)))
+        }
+
+        pub fn advance(&self, duration: Duration) {
+            self.0.set(self.0.get() + duration)
+        }
+
+        pub fn elapsed(&self) -> Instant {
+            self.0.get()
+        }
+    }
+}
+
 // enum for socket type
 #[derive(PartialEq, Clone)]
 #[repr(C)]
@@ -52,6 +74,7 @@ impl<'a, 'b> StackType<'a, 'b> {
 // https://doc.rust-lang.org/nomicon/hrtb.html
 pub struct Stack<'a, 'b: 'a, DeviceT>
     where DeviceT: for<'d> Device<'d>{
+    clock: mock::Clock,
     device: Option<DeviceT>,
     socket_set: SocketSet<'a>,
     current_socket_handle: u8,
@@ -72,6 +95,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
         let socket_set = SocketSet::new(vec![]);
         let ip_addrs = Vec::new();
         Stack {
+            clock: mock::Clock::new(),
             device: Some(device),
             socket_set,
             current_socket_handle: 0,
@@ -93,6 +117,16 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                 let socket_handle = stack.socket_set.add(socket);
                 stack.handle_map.insert(stack.current_socket_handle, socket_handle);
                 println!("A new socket was added with handle {}!", stack.current_socket_handle);
+
+                // Example for checking a socket state
+                // let socket = stack.socket_set.get::<TcpSocket>(socket_handle);
+                //
+                // println!("Is active {:#?}", socket.is_active());
+                // println!("Is listening {:#?}", socket.is_listening());
+                // println!("State {:#?}", socket.state());
+                // println!("May send {:#?}", socket.may_send());
+                // println!("May recv {:#?}", socket.may_recv());
+                // println!("Can recv {:#?}", socket.can_recv());
 
                 // TODO atomic might be needed here
                 stack.current_socket_handle = stack.current_socket_handle + 1;
@@ -127,6 +161,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
             .finalize();
         stack.iface = Some(iface);
         println!("Interface has been built!");
+        println!("{:#?}", stack.handle_map);
         0
     }
 
@@ -134,6 +169,16 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
     pub fn get_handle(stack: &mut Stack<DeviceT>) -> u8 {
         stack.current_socket_handle = stack.current_socket_handle + 1;
         stack.current_socket_handle
+    }
+
+    pub fn poll_interface(stack: &mut Stack<DeviceT>) -> u8 {
+        let iface = stack.iface.as_mut().unwrap();
+        let result =
+            iface.poll(stack.socket_set.borrow_mut(), stack.clock.elapsed());
+        match result {
+            Ok(_) => { println!("{:?}", stack.clock.elapsed()); 0 }
+            Err(_) => { 1 }
+        }
     }
 }
 

@@ -207,6 +207,23 @@ pub extern "C" fn build_interface(stack: *mut StackType) -> u8 {
 }
 
 #[no_mangle]
+pub extern "C" fn poll_interface(stack: *mut StackType) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::poll_interface(stack)
+        },
+        StackType::Loopback(stack) => {
+            Stack::poll_interface(stack)
+        },
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn init_tap_stack<'a, 'b>(interface_name: *const c_char) -> *mut StackType<'a, 'b> {
     let c_interface_name = unsafe {
         assert!(!interface_name.is_null());
