@@ -59,4 +59,6 @@ extern uint8_t smoltcp_listen(smoltcp_stack_t *stack, Ipv4AddressC server_ip, ui
 
 extern uint8_t smoltcp_connect(smoltcp_stack_t *stack, Ipv4AddressC server_ip,
                                uint16_t server_port, uint8_t socket, uint16_t client_port);
+
+extern uint8_t smoltcp_send(smoltcp_stack_t *stack, uint8_t socket, char *message);
 #endif

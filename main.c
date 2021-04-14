@@ -34,7 +34,11 @@ int main(int argc, char *argv[])
 //	}
 
     smoltcp_listen(lo_stack, lo_addr, server, SERVER_PORT);
+    poll_interface(lo_stack);
     smoltcp_connect(lo_stack, lo_addr, SERVER_PORT, client, CLIENT_PORT);
+    poll_interface(lo_stack);
+    smoltcp_send(lo_stack, client, "test_buffer");
+    poll_interface(lo_stack);
 
     destroy_stack(lo_stack);
 	return 0;

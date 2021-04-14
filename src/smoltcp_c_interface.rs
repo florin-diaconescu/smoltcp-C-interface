@@ -264,6 +264,28 @@ pub extern "C" fn smoltcp_connect(stack: *mut StackType, server_ip: Ipv4AddressC
 }
 
 #[no_mangle]
+pub extern "C" fn smoltcp_send(stack: *mut StackType, client_socket: u8, message: *const c_char) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    let c_message = unsafe {
+        assert!(!message.is_null());
+        CStr::from_ptr(message)
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::send(stack, client_socket, c_message.to_str().unwrap())
+        },
+        StackType::Loopback(stack) => {
+            Stack::send(stack, client_socket, c_message.to_str().unwrap())
+        }
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn init_tap_stack<'a, 'b>(interface_name: *const c_char) -> *mut StackType<'a, 'b> {
     let c_interface_name = unsafe {
         assert!(!interface_name.is_null());

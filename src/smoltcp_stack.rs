@@ -18,6 +18,7 @@ use std::io::Error;
 use std::borrow::{Borrow, BorrowMut};
 use smoltcp::iface::Interface;
 use std::mem;
+use smoltcp::time::Duration;
 
 mod mock {
     use smoltcp::time::{Duration, Instant};
@@ -106,6 +107,26 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
             iface: None,
         }
     }
+
+    pub fn advance_clock(stack: &mut Stack<DeviceT>) -> u8 {
+        match stack.iface.as_mut().unwrap().poll_delay(&stack.socket_set.borrow_mut(),
+                                                       stack.clock.elapsed()) {
+            Some(Duration { millis: 0 }) => {
+                println!("resuming");
+                0
+            },
+            Some(delay) => {
+                println!("sleeping for {} ms", delay);
+                stack.clock.advance(delay);
+                0
+            },
+            None => {
+                stack.clock.advance(Duration::from_millis(1));
+                0
+            }
+        }
+    }
+
     pub fn add_socket_to_stack(stack: &mut Stack<DeviceT>, smol_socket: SmolSocket) -> u8 {
         match smol_socket.socket_type {
             SocketType::TCP => {
@@ -184,39 +205,83 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
     // TODO What if function is called with an UDP socket handle?
     pub fn listen(stack: &mut Stack<DeviceT>, server_ip: IpAddress,
                   socket: u8, port: u16) -> u8 {
-        // first, we get the handle from the hashmap
-        let handle = stack.handle_map.get(&socket).unwrap();
-        // then, we get the TcpSocket from the SocketSet
-        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
-        if !socket.is_active() && !socket.is_listening() {
-            let endpoint = IpEndpoint::new(server_ip, port);
-            let result = socket.listen(endpoint);
-            match result {
-                Ok(_) => { println!("Socket is listening!"); 0 }
-                Err(_) => { 1 }
+        let err: i32;
+        {
+            // first, we get the handle from the hashmap
+            let handle = stack.handle_map.get(&socket).unwrap();
+            // then, we get the TcpSocket from the SocketSet
+            let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+
+            err = {
+                if !socket.is_active() && !socket.is_listening() {
+                    let endpoint = IpEndpoint::new(server_ip, port);
+                    let result = socket.listen(endpoint);
+                    match result {
+                        Ok(_) => { 0 }
+                        Err(_) => { 1 }
+                    }
+                } else { 1 }
             };
         }
-        1
+        match err {
+            0 => { Stack::advance_clock(stack) }
+            1 => { 1 }
+            _ => { 1 }
+        }
     }
     // TODO What if function is called with an UDP socket handle?
     pub fn connect(stack: &mut Stack<DeviceT>, server_ip: IpAddress,
                    server_port: u16, client_socket: u8, client_port: u16) -> u8 {
-        // first, we get the handle from the hashmap
-        let handle = stack.handle_map.get(&client_socket).unwrap();
-        // then, we get the TcpSocket from the SocketSet
-        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
-        if !socket.is_open() {
-            // server endpoint will have the Ip Address specified
-            // client endpoint doesn't require an IpAddress, therefore it is Unspecified
-            let server_endpoint = IpEndpoint::new(server_ip, server_port);
-            let client_endpoint = IpEndpoint::new(IpAddress::Unspecified, client_port);
-            let result = socket.connect(server_endpoint, client_endpoint);
-            match result {
-                Ok(_) => { println!("Client is connected to server!"); 0 }
-                Err(_) => { 1 }
-            };
+        let err: i32;
+        {
+            // first, we get the handle from the hashmap
+            let handle = stack.handle_map.get(&client_socket).unwrap();
+            // then, we get the TcpSocket from the SocketSet
+            let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+
+            err = {
+                if !socket.is_open() {
+                    // server endpoint will have the Ip Address specified
+                    // client endpoint doesn't require an IpAddress, therefore it is Unspecified
+                    let server_endpoint = IpEndpoint::new(server_ip, server_port);
+                    let client_endpoint = IpEndpoint::new(IpAddress::Unspecified, client_port);
+                    let result = socket.connect(server_endpoint, client_endpoint);
+                    match result {
+                        Ok(_) => {
+                            println!("Client is connected to server!");
+                            println!("Is active {:#?}", socket.is_active());
+                            println!("Is listening {:#?}", socket.is_listening());
+                            println!("State {:#?}", socket.state());
+                            println!("May send {:#?}", socket.may_send());
+                            println!("May recv {:#?}", socket.may_recv());
+                            println!("Can recv {:#?}", socket.can_recv());
+                            0
+                        }
+                        Err(_) => { 1 }
+                    }
+                } else { 1 }
+            }
+
         }
-        1
+        match err {
+            0 => { Stack::advance_clock(stack) }
+            1 => { 1 }
+            _ => { 1 }
+        }
+    }
+
+    pub fn send(stack: &mut Stack<DeviceT>, client_socket: u8, message: &str) -> u8 {
+        let handle = stack.handle_map.get(&client_socket).unwrap();
+        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+        if socket.can_send() {
+            println!("Socket sending!");
+            socket.send_slice(message.as_ref()).unwrap();
+            0
+        }
+        else {
+            println!("Socket can't send!");
+            1
+        }
     }
 }
 
