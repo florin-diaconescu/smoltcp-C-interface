@@ -286,6 +286,40 @@ pub extern "C" fn smoltcp_send(stack: *mut StackType, client_socket: u8, message
 }
 
 #[no_mangle]
+pub extern "C" fn smoltcp_recv(stack: *mut StackType, socket: u8) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::recv(stack, socket)
+        },
+        StackType::Loopback(stack) => {
+            Stack::recv(stack, socket)
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn smoltcp_close(stack: *mut StackType, socket: u8) {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::close(stack, socket)
+        },
+        StackType::Loopback(stack) => {
+            Stack::close(stack, socket)
+        }
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn init_tap_stack<'a, 'b>(interface_name: *const c_char) -> *mut StackType<'a, 'b> {
     let c_interface_name = unsafe {
         assert!(!interface_name.is_null());

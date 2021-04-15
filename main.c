@@ -13,6 +13,7 @@
 int main(int argc, char *argv[])
 {
     uint8_t client, server;
+    int did_connect = 0, did_listen = 0, did_send = 0, did_recv = 0;
     struct Ipv4AddressC lo_addr = {
             .ip_address = { 127, 0, 0, 1 }
     };
@@ -27,18 +28,34 @@ int main(int argc, char *argv[])
 //    add_ethernet_address(stack, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01);
 	build_interface(lo_stack);
 
-//	while (1) {
-//        ret = poll_interface(lo_stack);
-//        if (ret == 1)
-//            break;
-//	}
-
-    smoltcp_listen(lo_stack, lo_addr, server, SERVER_PORT);
-    poll_interface(lo_stack);
-    smoltcp_connect(lo_stack, lo_addr, SERVER_PORT, client, CLIENT_PORT);
-    poll_interface(lo_stack);
-    smoltcp_send(lo_stack, client, "test_buffer");
-    poll_interface(lo_stack);
+    while (1) {
+        poll_interface(lo_stack);
+        // server part
+        if (!did_listen) {
+            smoltcp_listen(lo_stack, lo_addr, server, SERVER_PORT);
+            did_listen = 1;
+        }
+        else if (!did_recv) {
+            if (smoltcp_recv(lo_stack, server) == 0 ) {
+                smoltcp_close(lo_stack, server);
+                did_recv = 1;
+                break;
+            }
+        }
+        // client part
+        if (!did_connect) {
+            smoltcp_connect(lo_stack, lo_addr, SERVER_PORT, client, CLIENT_PORT);
+            did_connect = 1;
+        }
+        else {
+            if (!did_send) {
+                if (smoltcp_send(lo_stack, client, "test_buffer") == 0) {
+                    smoltcp_close(lo_stack, client);
+                    did_send = 1;
+                }
+            }
+        }
+    }
 
     destroy_stack(lo_stack);
 	return 0;

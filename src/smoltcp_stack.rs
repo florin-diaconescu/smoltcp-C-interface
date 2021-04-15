@@ -247,16 +247,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                     let client_endpoint = IpEndpoint::new(IpAddress::Unspecified, client_port);
                     let result = socket.connect(server_endpoint, client_endpoint);
                     match result {
-                        Ok(_) => {
-                            println!("Client is connected to server!");
-                            println!("Is active {:#?}", socket.is_active());
-                            println!("Is listening {:#?}", socket.is_listening());
-                            println!("State {:#?}", socket.state());
-                            println!("May send {:#?}", socket.may_send());
-                            println!("May recv {:#?}", socket.may_recv());
-                            println!("Can recv {:#?}", socket.can_recv());
-                            0
-                        }
+                        Ok(_) => { 0 }
                         Err(_) => { 1 }
                     }
                 } else { 1 }
@@ -282,6 +273,29 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
             println!("Socket can't send!");
             1
         }
+    }
+
+    pub fn recv(stack: &mut Stack<DeviceT>, server_socket: u8) -> u8 {
+        let handle = stack.handle_map.get(&server_socket).unwrap();
+        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+        if socket.can_recv() {
+            println!("Socket receiving!");
+            println!("got {:?}", socket.recv(|buffer| {
+                (buffer.len(), std::str::from_utf8(buffer).unwrap())
+            }));
+            0
+        }
+        else {
+            println!("Socket can't receive!");
+            1
+        }
+    }
+
+    pub fn close(stack: &mut Stack<DeviceT>, socket: u8){
+        let handle = stack.handle_map.get(&socket).unwrap();
+        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+
+        socket.close();
     }
 }
 
