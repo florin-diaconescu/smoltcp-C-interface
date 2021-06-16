@@ -377,14 +377,14 @@ pub fn udp_echo_prepare_package(packet: *mut c_void) -> *mut c_void {
                 //packet[ETH_HEADER_SIZE..ETH_HEADER_SIZE + IP_HEADER_SIZE].copy_from_slice(ip_hdr);
                 copy_nonoverlapping(ip_p, new.add(ETH_HEADER_SIZE), IP_HEADER_SIZE);
                 /* Switch UDP ports */
-                println!("HEYYYYOO {} {}", udp_hdr.source, udp_hdr.dest);
+                println!("BEFORE {} {}", udp_hdr.source, udp_hdr.dest);
                 udp_hdr.source ^= udp_hdr.dest;
                 udp_hdr.dest ^= udp_hdr.source;
                 udp_hdr.source ^= udp_hdr.dest;
                 let udp_p = &mut udp_hdr as *mut _ as *mut c_void;
                 copy_nonoverlapping(udp_p, new.add(ETH_HEADER_SIZE + IP_HEADER_SIZE), UDP_HEADER_SIZE);
 
-                println!("HEYYYYOO {} {}", udp_hdr.source, udp_hdr.dest);
+                println!("AFTER {} {}", udp_hdr.source, udp_hdr.dest);
                 ret = new;
             } else {
                 ret = packet

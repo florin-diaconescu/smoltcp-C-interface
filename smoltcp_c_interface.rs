@@ -368,7 +368,6 @@ pub extern "C" fn smoltcp_recv(stack: *mut StackType, socket: u8) -> u8 {
 
 #[no_mangle]
 pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType) -> u8 {
-    //println!("SUNT AICEA!");
     let stack = unsafe {
         assert!(!stack.is_null());
         &mut *stack
@@ -382,7 +381,6 @@ pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType) -> u8 {
             1
         },
         StackType::UkNetdevInterface(stack) => unsafe {
-            //println!("SUNT AICEA!");
             Stack::uk_recv(stack)
         }
     }
@@ -466,7 +464,6 @@ pub extern "C" fn init_loopback_stack<'a, 'b>() -> *mut StackType<'a, 'b> {
 
 #[no_mangle]
 pub extern "C" fn init_uknetdev_stack<'a, 'b>() -> *mut StackType<'a, 'b> {
-    //println!("SUNT AICEA!");
     Box::into_raw(Box::new(StackType::new_uknetdev_stack()))
 }
 
