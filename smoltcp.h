@@ -30,6 +30,8 @@ extern smoltcp_stack_t *init_tap_stack(char *interface_name);
 
 extern smoltcp_stack_t *init_loopback_stack(void);
 
+extern smoltcp_stack_t *init_uknetdev_stack(void);
+
 extern void destroy_stack(smoltcp_stack_t *stack);
 
 // add_socket with default rx_buffer and tx_buffer size
@@ -60,9 +62,17 @@ extern uint8_t smoltcp_listen(smoltcp_stack_t *stack, Ipv4AddressC server_ip, ui
 extern uint8_t smoltcp_connect(smoltcp_stack_t *stack, Ipv4AddressC server_ip,
                                uint16_t server_port, uint8_t socket, uint16_t client_port);
 
+extern uint8_t smoltcp_bind(smoltcp_stack_t *stack, uint8_t socket, uint16_t port);
+
 extern uint8_t smoltcp_send(smoltcp_stack_t *stack, uint8_t socket, char *message);
+
+extern uint8_t smoltcp_uk_send(smoltcp_stack_t *stack, void *message);
 
 extern uint8_t smoltcp_recv(smoltcp_stack_t *stack, uint8_t socket);
 
+extern uint8_t smoltcp_uk_recv(smoltcp_stack_t *stack);
+
 extern uint8_t smoltcp_close(smoltcp_stack_t *stack, uint8_t socket);
+
+extern uint8_t uknetdev_input(smoltcp_stack_t *stack, void *packet);
 #endif

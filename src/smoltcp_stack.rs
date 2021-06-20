@@ -233,7 +233,6 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
         }
     }
 
-    // TODO What if function is called with an UDP socket handle?
     pub fn listen(stack: &mut Stack<DeviceT>, server_ip: IpAddress,
                   socket: u8, port: u16) -> u8 {
         let err: i32;
@@ -260,7 +259,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
             _ => { 1 }
         }
     }
-    // TODO What if function is called with an UDP socket handle?
+
     pub fn connect(stack: &mut Stack<DeviceT>, server_ip: IpAddress,
                    server_port: u16, client_socket: u8, client_port: u16) -> u8 {
         let err: i32;
@@ -284,6 +283,36 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                 } else { 1 }
             }
 
+        }
+        match err {
+            0 => { Stack::advance_clock(stack) }
+            1 => { 1 }
+            _ => { 1 }
+        }
+    }
+
+    pub fn bind(stack: &mut Stack<DeviceT>, socket: u8, port: u16) -> u8 {
+        let err: i32;
+        {
+            let handle = stack.handle_map.get(&socket).unwrap();
+            let mut socket = stack.socket_set.get::<UdpSocket>(*handle);
+            let endpoint = IpEndpoint::new(IpAddress::Unspecified, port);
+
+            err = {
+                if !socket.is_open() {
+                    let result = socket.bind(endpoint);
+                    match result {
+                        Ok(_) => {
+                            println!("Successful bind!");
+                            0
+                        }
+                        Err(_) => {
+                            println!("Error on bind!");
+                            1
+                        }
+                    }
+                } else { 1 }
+            }
         }
         match err {
             0 => { Stack::advance_clock(stack) }

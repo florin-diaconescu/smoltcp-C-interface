@@ -109,8 +109,13 @@ pub extern "C" fn add_socket(stack: *mut StackType, socket_type: u8) -> u8 {
                 tx_buffer: 65535,
             })
         },
-        StackType::UkNetdevInterface(_stack) => {
-            1
+        StackType::UkNetdevInterface(stack) => {
+            Stack::add_socket_to_stack(stack, SmolSocket {
+                socket_type,
+                socket_handle: Default::default(),
+                rx_buffer: 65535,
+                tx_buffer: 65535,
+            })
         },
     }
 }
@@ -144,8 +149,13 @@ pub extern "C" fn add_socket_with_buffer (stack: *mut StackType, socket_type: u8
                 tx_buffer,
             })
         },
-        StackType::UkNetdevInterface(_stack) => {
-            1
+        StackType::UkNetdevInterface(stack) => {
+            Stack::add_socket_to_stack(stack, SmolSocket {
+                socket_type,
+                socket_handle: Default::default(),
+                rx_buffer,
+                tx_buffer,
+            })
         },
     }
 
@@ -295,6 +305,26 @@ pub extern "C" fn smoltcp_connect(stack: *mut StackType, server_ip: Ipv4AddressC
         },
         StackType::UkNetdevInterface(_stack) => {
             1
+        },
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn smoltcp_bind(stack: *mut StackType, socket: u8, port: u16) -> u8 {
+    let stack = unsafe {
+        assert!(!stack.is_null());
+        &mut *stack
+    };
+
+    match stack {
+        StackType::Tap(stack) => {
+            Stack::bind(stack, socket, port)
+        },
+        StackType::Loopback(stack) => {
+            Stack::bind(stack, socket, port)
+        },
+        StackType::UkNetdevInterface(stack) => {
+            Stack::bind(stack, socket, port)
         },
     }
 }
