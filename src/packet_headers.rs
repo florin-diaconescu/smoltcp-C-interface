@@ -544,3 +544,12 @@ impl iphdr {
         __bindgen_bitfield_unit
     }
 }
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct udp_packet {
+    pub eth_hdr: ether_header,
+    pub ip_hdr: iphdr,
+    pub udp_hdr: udphdr,
+    pub payload: *const ::std::os::raw::c_char,
+}

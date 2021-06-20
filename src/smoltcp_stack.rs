@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 use::smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr, Ipv6Address, IpEndpoint};
-use smoltcp::wire::{EthernetAddress, EthernetFrame};
+use smoltcp::wire::{EthernetAddress, EthernetFrame, UdpPacket};
 use::smoltcp::phy::wait as phy_wait;
 use::smoltcp::phy::{Device, RxToken, RawSocket, Medium};
 use::smoltcp::time::Instant;
@@ -19,13 +19,14 @@ use std::borrow::{Borrow, BorrowMut};
 use smoltcp::iface::Interface;
 use std::mem;
 use smoltcp::time::Duration;
-use crate::packet_headers::{ether_header, iphdr, udphdr};
+use crate::packet_headers::{ether_header, iphdr, udphdr, udp_packet};
 use std::mem::{size_of, transmute};
 use crate::uknetdev_interface::UkNetdevInterface;
-use std::ffi::c_void;
+use std::ffi::{c_void, CStr};
 use crate::smoltcp_c_interface::{ETH_IPV4, PROTO_UDP, ETH_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE};
-use std::ptr::{copy_nonoverlapping, null, null_mut};
+use std::ptr::{copy_nonoverlapping, null, null_mut, slice_from_raw_parts_mut};
 use core::ptr;
+use std::os::raw::c_char;
 
 extern "C" {
     pub fn packet_handler_wrapper();
@@ -306,11 +307,55 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
     }
 
     /* uknetdev_output equivalent */
-    pub unsafe fn uk_send(_stack: &mut Stack<DeviceT>, packet: *mut c_void) -> u8 {
-        /* Prepare packet for UDP echo */
-        let new_packet = udp_echo_prepare_package(packet);
-        uknetdev_output_wrapper(new_packet);
-        0
+    pub unsafe fn uk_send(stack: &mut Stack<DeviceT>, packet: *mut c_void) -> u8 {
+        let eth_hdr = &mut {
+            *(packet as *mut ether_header)
+        };
+
+        /* eth_hdr.ether_type is 8 for IPv4 encapsulated package and 56710 for IPv6 */
+        if eth_hdr.ether_type == ETH_IPV4 {
+            println!("ETHERNET {:?} {:?}", eth_hdr.ether_shost, eth_hdr.ether_dhost);
+            let ip_hdr = &mut {
+                *(packet.add(ETH_HEADER_SIZE)
+                    as *mut iphdr)
+            };
+
+            /* ip_hdr.protocol is 17 (0x11) for UDP packages */
+            if ip_hdr.protocol == PROTO_UDP {
+                println!("UDP PACKET!!!!");
+                let udp_hdr = &mut {
+                    *(packet.add(ETH_HEADER_SIZE).
+                        add(IP_HEADER_SIZE)
+                        as *mut udphdr)
+                };
+
+                /* We need to swap bytes, to account for network byte order */
+                let src_port = udp_hdr.source.swap_bytes();
+                let dst_port = udp_hdr.dest.swap_bytes();
+                let length = udp_hdr.len.swap_bytes();
+                println!("UDP Ports {} {} length {}", src_port, dst_port, length);
+                let handle = stack.handle_map.get(&(src_port as u8));
+                let ret = match handle {
+                    None => { 1 }
+                    Some(_) => {
+                        let payload_size = (length - 8) as usize;
+                        let packet_size = ETH_HEADER_SIZE + IP_HEADER_SIZE + UDP_HEADER_SIZE + payload_size;
+
+                        /* Get a Rust buffer from the packet; we're only interested in the last
+                         * `payload_size` bytes
+                         */
+                        let buf = std::slice::from_raw_parts_mut(packet as *mut u8, packet_size);
+                        let payload_buf = &buf[packet_size - payload_size..packet_size];
+                        println!("{:x?}", payload_buf);
+                        Stack::send(stack, src_port as u8, std::str::from_utf8(payload_buf).unwrap())
+                    }
+                };
+
+                return ret
+            }
+        }
+        //uknetdev_output_wrapper(new_packet);
+        1
     }
 
     pub unsafe fn uk_recv(_stack: &mut Stack<DeviceT>) -> u8 {
@@ -342,58 +387,9 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
     }
 }
 
-pub fn udp_echo_prepare_package(packet: *mut c_void) -> *mut c_void {
-    let new: *mut c_void = packet.clone();
-    let ret;
-    let mut eth_hdr = &mut unsafe {
-        *(packet as *mut ether_header)
-    };
-    let eth_p = &mut eth_hdr as *mut _ as *mut c_void;
-
-    /* eth_hdr.ether_type is 8 for IPv4 encapsulated package and 56710 for IPv6 */
-    unsafe {
-        if eth_hdr.ether_type == ETH_IPV4 {
-            let mut ip_hdr = &mut {
-                *(packet.add(ETH_HEADER_SIZE)
-                    as *mut iphdr)
-            };
-            let ip_p = &mut ip_hdr as *mut _ as *mut c_void;
-
-            /* ip_hdr.protocol is 17 (0x11) for UDP packages */
-            if ip_hdr.protocol == PROTO_UDP {
-                println!("UDP PACKET!!!!");
-                let mut udp_hdr = &mut {
-                    *(packet.add(ETH_HEADER_SIZE).
-                        add(IP_HEADER_SIZE)
-                        as *mut udphdr)
-                };
-
-                /* Switch IP addresses */
-                ip_hdr.saddr ^= ip_hdr.daddr;
-                ip_hdr.daddr ^= ip_hdr.saddr;
-                ip_hdr.saddr ^= ip_hdr.daddr;
-
-                copy_nonoverlapping(eth_p, new, ETH_HEADER_SIZE);
-                //packet[ETH_HEADER_SIZE..ETH_HEADER_SIZE + IP_HEADER_SIZE].copy_from_slice(ip_hdr);
-                copy_nonoverlapping(ip_p, new.add(ETH_HEADER_SIZE), IP_HEADER_SIZE);
-                /* Switch UDP ports */
-                println!("HEYYYYOO {} {}", udp_hdr.source, udp_hdr.dest);
-                udp_hdr.source ^= udp_hdr.dest;
-                udp_hdr.dest ^= udp_hdr.source;
-                udp_hdr.source ^= udp_hdr.dest;
-                let udp_p = &mut udp_hdr as *mut _ as *mut c_void;
-                copy_nonoverlapping(udp_p, new.add(ETH_HEADER_SIZE + IP_HEADER_SIZE), UDP_HEADER_SIZE);
-
-                println!("HEYYYYOO {} {}", udp_hdr.source, udp_hdr.dest);
-                ret = new;
-            } else {
-                ret = packet
-            }
-        } else {
-            ret = packet
-        }
-    }
-    ret
+pub unsafe fn send_udp_packet(mut udp_packet: udp_packet) {
+    let udp_ptr = &mut udp_packet as *mut _ as *mut c_void;
+    uknetdev_output_wrapper(udp_ptr);
 }
 
 pub struct SmolSocket {
