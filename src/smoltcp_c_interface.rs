@@ -89,7 +89,6 @@ pub extern "C" fn add_socket(stack: *mut StackType, socket_type: u8) -> u8 {
     let socket_type = match socket_type {
         0 => SocketType::TCP,
         1 => SocketType::UDP,
-        2 => SocketType::RAW,
         _ => panic!("Socket type not supported!"),
     };
     match stack {
@@ -397,7 +396,7 @@ pub extern "C" fn smoltcp_recv(stack: *mut StackType, socket: u8) -> u8 {
 }
 
 #[no_mangle]
-pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType) -> u8 {
+pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType, port: u8) -> u8 {
     let stack = unsafe {
         assert!(!stack.is_null());
         &mut *stack
@@ -411,7 +410,7 @@ pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType) -> u8 {
             1
         },
         StackType::UkNetdevInterface(stack) => unsafe {
-            Stack::uk_recv(stack)
+            Stack::uk_recv(stack, port)
         }
     }
 }

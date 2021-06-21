@@ -1,19 +1,19 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 use::smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr, Ipv6Address, IpEndpoint};
-use smoltcp::wire::{EthernetAddress, EthernetFrame, UdpPacket};
+use smoltcp::wire::{EthernetAddress, EthernetFrame, UdpPacket, Ipv4Repr, UdpRepr};
 use::smoltcp::phy::wait as phy_wait;
 use::smoltcp::phy::{Device, RxToken, RawSocket, Medium};
 use::smoltcp::time::Instant;
 use::smoltcp::socket::{SocketSet};
 use::smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use super::smoltcp_c_interface::{Ipv4AddressC, Ipv4CidrC};
-use smoltcp::socket::{SocketHandle, TcpSocketBuffer, TcpSocket, UdpSocketBuffer, UdpSocket, UdpPacketMetadata};
+use smoltcp::socket::{SocketHandle, TcpSocketBuffer, TcpSocket, UdpSocketBuffer, UdpSocket, UdpPacketMetadata, AnySocket};
 use std::vec::Vec;
 use std::collections::{HashMap, BTreeMap};
 use nohash::{NoHashHasher, BuildNoHashHasher};
 use std::hash::BuildHasherDefault;
-use smoltcp::phy::{TunTapInterface, Loopback};
+use smoltcp::phy::{TunTapInterface, Loopback, ChecksumCapabilities};
 use std::io::Error;
 use std::borrow::{Borrow, BorrowMut};
 use smoltcp::iface::Interface;
@@ -27,9 +27,10 @@ use crate::smoltcp_c_interface::{ETH_IPV4, PROTO_UDP, ETH_HEADER_SIZE, IP_HEADER
 use std::ptr::{copy_nonoverlapping, null, null_mut, slice_from_raw_parts_mut};
 use core::ptr;
 use std::os::raw::c_char;
+use std::ops::Deref;
 
 extern "C" {
-    pub fn packet_handler_wrapper();
+    pub fn packet_handler_wrapper() -> *mut c_void;
     pub fn uknetdev_output_wrapper(packet: *mut c_void);
 }
 
@@ -56,12 +57,11 @@ mod mock {
 }
 
 // enum for socket type
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 #[repr(C)]
 pub enum SocketType {
     UDP,
     TCP,
-    RAW,
 }
 
 pub enum StackType<'a, 'b> {
@@ -101,7 +101,7 @@ pub struct Stack<'a, 'b: 'a, DeviceT>
     socket_set: SocketSet<'a>,
     current_socket_handle: u8,
     // we need a mapping between uint8_t socket handle and SocketHandle
-    handle_map: HashMap::<u8, SocketHandle, BuildNoHashHasher<u8>>,
+    handle_map: HashMap::<u8, (SocketHandle, SocketType), BuildNoHashHasher<u8>>,
     // list for remembering ip_addresses Added
     ip_addrs: Vec<IpCidr>,
     // ethernet address
@@ -157,7 +157,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                     TcpSocketBuffer::new(vec![0; smol_socket.tx_buffer]);
                 let socket = TcpSocket::new(rx_buffer, tx_buffer);
                 let socket_handle = stack.socket_set.add(socket);
-                stack.handle_map.insert(stack.current_socket_handle, socket_handle);
+                stack.handle_map.insert(stack.current_socket_handle, (socket_handle, SocketType::TCP));
                 println!("A new socket was added with handle {}!", stack.current_socket_handle);
 
                 // Example for checking a socket state
@@ -181,14 +181,11 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                     UdpSocketBuffer::new(vec![UdpPacketMetadata::EMPTY],vec![0; smol_socket.tx_buffer]);
                 let socket = UdpSocket::new(rx_buffer, tx_buffer);
                 let socket_handle = stack.socket_set.add(socket);
-                stack.handle_map.insert(stack.current_socket_handle, socket_handle);
+                stack.handle_map.insert(stack.current_socket_handle, (socket_handle, SocketType::UDP));
                 println!("A new socket was added with handle {}!", stack.current_socket_handle);
 
                 stack.current_socket_handle = stack.current_socket_handle + 1;
                 stack.current_socket_handle - 1
-            }
-            SocketType::RAW => {
-                0
             }
         }
     }
@@ -240,7 +237,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
             // first, we get the handle from the hashmap
             let handle = stack.handle_map.get(&socket).unwrap();
             // then, we get the TcpSocket from the SocketSet
-            let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+            let mut socket = stack.socket_set.get::<TcpSocket>((*handle).0);
 
             err = {
                 if !socket.is_active() && !socket.is_listening() {
@@ -267,7 +264,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
             // first, we get the handle from the hashmap
             let handle = stack.handle_map.get(&client_socket).unwrap();
             // then, we get the TcpSocket from the SocketSet
-            let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+            let mut socket = stack.socket_set.get::<TcpSocket>((*handle).0);
 
             err = {
                 if !socket.is_open() {
@@ -295,7 +292,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
         let err: i32;
         {
             let handle = stack.handle_map.get(&socket).unwrap();
-            let mut socket = stack.socket_set.get::<UdpSocket>(*handle);
+            let mut socket = stack.socket_set.get::<UdpSocket>((*handle).0);
             let endpoint = IpEndpoint::new(IpAddress::Unspecified, port);
 
             err = {
@@ -323,20 +320,39 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
 
     pub fn send(stack: &mut Stack<DeviceT>, client_socket: u8, message: &str) -> u8 {
         let handle = stack.handle_map.get(&client_socket).unwrap();
-        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
-        if socket.can_send() {
-            println!("Socket sending!");
-            socket.send_slice(message.as_ref()).unwrap();
-            0
+
+        match (*handle).1 {
+            SocketType::UDP => {
+                let mut socket = stack.socket_set.get::<UdpSocket>((*handle).0);
+                println!("ENDPOINT! {:?}", socket.deref().endpoint());
+                0
+            }
+            SocketType::TCP => {
+                let mut socket = stack.socket_set.get::<TcpSocket>((*handle).0);
+                if socket.can_send() {
+                    println!("Socket sending!");
+                    socket.send_slice(message.as_ref()).unwrap();
+                    0
+                }
+                else {
+                    println!("Socket can't send!");
+                    1
+                }
+            }
         }
-        else {
-            println!("Socket can't send!");
-            1
-        }
+
     }
 
     /* uknetdev_output equivalent */
     pub unsafe fn uk_send(stack: &mut Stack<DeviceT>, packet: *mut c_void) -> u8 {
+        uknetdev_output_wrapper(packet);
+        1
+    }
+
+    pub unsafe fn uk_recv(stack: &mut Stack<DeviceT>, port: u8) -> u8 {
+        /* Get a packet from uknetdev */
+        let packet = packet_handler_wrapper();
+
         let eth_hdr = &mut {
             *(packet as *mut ether_header)
         };
@@ -358,12 +374,17 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                         as *mut udphdr)
                 };
 
+                /* Convert an u32 number to [u8; 4] array and then make an Ipv4Addres out of it */
+                let saddr = Ipv4Address(ip_hdr.saddr.to_le_bytes());
+                let daddr = Ipv4Address(ip_hdr.daddr.to_le_bytes());
+                println!("SRC_ADDR {:?} DST_ADDR {:?}", saddr, daddr);
+
                 /* We need to swap bytes, to account for network byte order */
                 let src_port = udp_hdr.source.swap_bytes();
                 let dst_port = udp_hdr.dest.swap_bytes();
                 let length = udp_hdr.len.swap_bytes();
                 println!("UDP Ports {} {} length {}", src_port, dst_port, length);
-                let handle = stack.handle_map.get(&(src_port as u8));
+                let handle = stack.handle_map.get(&port);
                 let ret = match handle {
                     None => { 1 }
                     Some(_) => {
@@ -376,25 +397,30 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                         let buf = std::slice::from_raw_parts_mut(packet as *mut u8, packet_size);
                         let payload_buf = &buf[packet_size - payload_size..packet_size];
                         println!("{:x?}", payload_buf);
-                        Stack::send(stack, src_port as u8, std::str::from_utf8(payload_buf).unwrap())
+
+                        let repr = UdpRepr {
+                            src_port,
+                            dst_port,
+                            payload: payload_buf
+                        };
+                        let mut bytes = payload_buf;
+                        let mut packet = UdpPacket::new_unchecked(&mut bytes);
+                        // repr.emit(&mut packet, &saddr.into(), &daddr.into(),
+                        //          &ChecksumCapabilities::default());
+
+                        Stack::send(stack, port, std::str::from_utf8(payload_buf).unwrap())
                     }
                 };
 
                 return ret
             }
         }
-        //uknetdev_output_wrapper(new_packet);
-        1
-    }
-
-    pub unsafe fn uk_recv(_stack: &mut Stack<DeviceT>) -> u8 {
-        packet_handler_wrapper();
         0
     }
 
     pub fn recv(stack: &mut Stack<DeviceT>, server_socket: u8) -> u8 {
         let handle = stack.handle_map.get(&server_socket).unwrap();
-        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+        let mut socket = stack.socket_set.get::<TcpSocket>((*handle).0);
         if socket.can_recv() {
             println!("Socket receiving!");
             println!("got {:?}", socket.recv(|buffer| {
@@ -410,7 +436,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
 
     pub fn close(stack: &mut Stack<DeviceT>, socket: u8){
         let handle = stack.handle_map.get(&socket).unwrap();
-        let mut socket = stack.socket_set.get::<TcpSocket>(*handle);
+        let mut socket = stack.socket_set.get::<TcpSocket>((*handle).0);
 
         socket.close();
     }

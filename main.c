@@ -23,7 +23,7 @@
 #define UKNETDEV_MODE
 
 struct uk_netdev *dev;
-struct uk_netbuf *nb;
+struct uk_netbuf *netbuf;
 
 /* These headers are taken from linux */
 struct	ether_header {
@@ -113,8 +113,8 @@ void print_ip(uint32_t ip)
     bytes[0] = ip & 0xFF;
     bytes[1] = (ip >> 8) & 0xFF;
     bytes[2] = (ip >> 16) & 0xFF;
-    bytes[3] = (ip >> 24) & 0xFF;   
-    fprintf(stderr, "%d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);        
+    bytes[3] = (ip >> 24) & 0xFF;
+    fprintf(stderr, "%d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);
 }
 
 
@@ -173,13 +173,11 @@ static void inline prepare_packet(struct uk_netbuf *nb)
 static inline void uknetdev_output(struct uk_netdev *dev, struct uk_netbuf *nb)
 {
 	int ret;
-#ifndef TX_NO_RETRANSMISSION
+
 	do {
-#endif
 		ret = uk_netdev_tx_one(dev, 0, nb);
-#ifndef TX_NO_RETRANSMISSION
 	} while(uk_netdev_status_notready(ret));
-#endif
+
 	if (ret < 0) {
 		uk_netbuf_free_single(nb);
 	}
@@ -190,43 +188,37 @@ void uknetdev_output_wrapper (void *new_data) {
 	struct iphdr *ip_hdr;
 	struct udphdr *udp_hdr;
 
-	eth_header = (struct ether_header *) nb->data;
+	eth_header = (struct ether_header *) netbuf->data;
 	// IPv4 is encapsulated
 	if (eth_header->ether_type == 8) {
-		ip_hdr = (struct iphdr *)((char *)nb->data + sizeof(struct ether_header));
+		ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
 
 		// If IP protocol is UDP
 		if (ip_hdr->protocol == 0x11) {
-			ip_hdr = (struct iphdr *)((char *)nb->data + sizeof(struct ether_header));
-			udp_hdr = (struct udphdr *)((char *)nb->data + sizeof(struct ether_header) + sizeof(struct iphdr));
+			ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
+			udp_hdr = (struct udphdr *)((char *)netbuf->data + sizeof(struct ether_header) + sizeof(struct iphdr));
 			fprintf(stderr, "INAINTE !!! %d %d\n", udp_hdr->source, udp_hdr->dest);
 		}
 	}
-	memcpy(nb->data, new_data, sizeof(new_data));
+	memcpy(netbuf->data, new_data, sizeof(new_data));
 
 	eth_header = (struct ether_header *) new_data;
 	// IPv4 is encapsulated
 	//if (eth_header->ether_type == 8) {
-		ip_hdr = (struct iphdr *)((char *)nb->data + sizeof(struct ether_header));
+		ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
 
 		// If IP protocol is UDP
 		if (ip_hdr->protocol == 0x11) {
-			ip_hdr = (struct iphdr *)((char *)nb->data + sizeof(struct ether_header));
-			udp_hdr = (struct udphdr *)((char *)nb->data + sizeof(struct ether_header) + sizeof(struct iphdr));
+			ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
+			udp_hdr = (struct udphdr *)((char *)netbuf->data + sizeof(struct ether_header) + sizeof(struct iphdr));
 			fprintf(stderr, "DUPA !!! %d %d\n", udp_hdr->source, udp_hdr->dest);
 		}
 	//}
 	else fprintf(stderr, "DUPA !!! %d\n", eth_header->ether_type);
-	uknetdev_output(dev, nb);
+	uknetdev_output(dev, netbuf);
 }
 
-#ifdef USE_SIMPLE_QUEUE
-/* 256 is the upper bound since this is the maximum number of tx descriptors */
-struct uk_netbuf *queue[256];
-uint16_t k = 0;
-#endif
-
-static inline void packet_handler(struct uk_netdev *dev,
+static inline void* packet_handler(struct uk_netdev *dev,
 		uint16_t queue_id __unused, void *argp)
 {
 
@@ -234,56 +226,24 @@ static inline void packet_handler(struct uk_netdev *dev,
 	struct iphdr *ip_hdr;
 	int ret;
 	struct uk_netbuf *nb;
-#ifdef USE_SIMPLE_QUEUE
-#ifdef USE_RX_BURST
-	k = 0;
-#else
-	k = 0;
-#endif /* USE_RX_BURST */
-#endif /* USE_SIMPLE_QUEUE */
 
-#ifdef USE_RX_BURST
-
-	// int k1;
-	// do {
-	// 	k1 = 255 - k;
-	// 	uk_netdev_rx_burst(dev, 0, &queue[k], &k1);
-	// 	k = k + k1;
-	// } while(k < 32);
-
-
-#else
-#ifndef RX_ONLY_ONE_PACKET
-	do {
-#endif
 back:
-		ret = uk_netdev_rx_one(dev, 0, &nb);
+    ret = uk_netdev_rx_one(dev, 0, &nb);
 
-		if (uk_netdev_status_notready(ret)) {
-			goto back;
-		}
+    if (uk_netdev_status_notready(ret)) {
+        goto back;
+    }
 
-#ifndef USE_SIMPLE_QUEUE
-		prepare_packet(nb);
-		uknetdev_output(dev, nb);
-#else
-		queue[k] = nb;
-		k++;
-		if (k > 254) {
-			goto done;
-		}
-#endif
-#ifndef RX_ONLY_ONE_PACKET
-	} while(uk_netdev_status_more(ret));
-#endif
-done:
-	return;
-#endif
+    netbuf = nb;
 
+	return nb->data;
 }
 
-void packet_handler_wrapper(void) {
-	packet_handler(dev, 0, NULL);
+void* packet_handler_wrapper(void) {
+    void *nb;
+	nb = packet_handler(dev, 0, NULL);
+
+	return nb;
 }
 
 int main(int argc, char *argv[])
@@ -384,21 +344,17 @@ int main(int argc, char *argv[])
 	}
 	fprintf(stderr, "\n \n \n");
 
-	//add_ethernet_address(uk_stack, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01);
-    client = add_socket_with_buffer(uk_stack, UDP, 3500, 3500);
+	add_ethernet_address(uk_stack, 0x52, 0x55, 0x00, 0xd1, 0x55, 0x01);
+    server = add_socket_with_buffer(uk_stack, UDP, 3500, 3500);
 	build_interface(uk_stack);
 
     smoltcp_bind(uk_stack, client, 4321);
 
 	while (1) {
-		ret = smoltcp_uk_recv(uk_stack);
-		if (ret) return 0;
+		ret = smoltcp_uk_recv(uk_stack, server);
 		fprintf(stderr, "Handler done!");
-		for (i = 0; i < k; i++) {
-			nb = queue[i];
-			smoltcp_uk_send(uk_stack, nb->data);
-			fprintf(stderr, "Uknetdev_outputed!");
-		}
+        smoltcp_uk_send(uk_stack, netbuf->data);
+        fprintf(stderr, "Uknetdev_outputed!");
 	}
 
 	destroy_stack(uk_stack);
