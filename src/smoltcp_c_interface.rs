@@ -10,7 +10,7 @@ use::smoltcp::iface::{InterfaceBuilder, NeighborCache};
 use smoltcp::socket::Socket;
 use std::net::IpAddr;
 use std::ffi::{CString, CStr, c_void};
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_int};
 use smoltcp::phy::TunTapInterface;
 use crate::smoltcp_stack::StackType;
 use std::mem::size_of;
@@ -52,6 +52,12 @@ pub struct Ipv6AddressC {
 pub struct IpAddressC {
     pub ipv4_address: Ipv4AddressC,
     pub ipv6_address: Ipv6AddressC
+}
+
+#[repr(C)]
+pub struct PacketInfo {
+    pub packet: *mut c_void,
+    pub size: u16
 }
 
 // https://doc.rust-lang.org/std/convert/trait.From.html

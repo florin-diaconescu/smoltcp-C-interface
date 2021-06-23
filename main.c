@@ -218,7 +218,7 @@ void uknetdev_output_wrapper (void *new_data) {
 	uknetdev_output(dev, netbuf);
 }
 
-static inline void* packet_handler(struct uk_netdev *dev,
+static inline struct PacketInfo packet_handler(struct uk_netdev *dev,
 		uint16_t queue_id __unused, void *argp)
 {
 
@@ -226,6 +226,7 @@ static inline void* packet_handler(struct uk_netdev *dev,
 	struct iphdr *ip_hdr;
 	int ret;
 	struct uk_netbuf *nb;
+	struct PacketInfo pi;
 
 back:
     ret = uk_netdev_rx_one(dev, 0, &nb);
@@ -236,14 +237,17 @@ back:
 
     netbuf = nb;
 
-	return nb->data;
+    pi.packet = nb->data;
+    pi.size = nb->len - 1;
+
+	return pi;
 }
 
-void* packet_handler_wrapper(void) {
-    void *nb;
-	nb = packet_handler(dev, 0, NULL);
+struct PacketInfo packet_handler_wrapper() {
+    struct PacketInfo pi;
+	pi = packet_handler(dev, 0, NULL);
 
-	return nb;
+	return pi;
 }
 
 int main(int argc, char *argv[])

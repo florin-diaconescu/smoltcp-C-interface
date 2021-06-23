@@ -1,7 +1,7 @@
 #![allow(unused_imports)]
 #![allow(dead_code)]
 use::smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Cidr, Ipv6Address, IpEndpoint};
-use smoltcp::wire::{EthernetAddress, EthernetFrame, UdpPacket, Ipv4Repr, UdpRepr};
+use smoltcp::wire::{EthernetAddress, EthernetFrame, UdpPacket, Ipv4Repr, UdpRepr, PrettyPrinter, Ipv4Packet, EthernetProtocol, IpProtocol};
 use::smoltcp::phy::wait as phy_wait;
 use::smoltcp::phy::{Device, RxToken, RawSocket, Medium};
 use::smoltcp::time::Instant;
@@ -23,14 +23,15 @@ use crate::packet_headers::{ether_header, iphdr, udphdr, udp_packet};
 use std::mem::{size_of, transmute};
 use crate::uknetdev_interface::UkNetdevInterface;
 use std::ffi::{c_void, CStr};
-use crate::smoltcp_c_interface::{ETH_IPV4, PROTO_UDP, ETH_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE};
+use crate::smoltcp_c_interface::{ETH_IPV4, PROTO_UDP, ETH_HEADER_SIZE, IP_HEADER_SIZE, UDP_HEADER_SIZE, PacketInfo};
 use std::ptr::{copy_nonoverlapping, null, null_mut, slice_from_raw_parts_mut};
 use core::ptr;
-use std::os::raw::c_char;
+use std::os::raw::{c_char, c_int};
 use std::ops::Deref;
+use smoltcp::phy::Medium::Ethernet;
 
 extern "C" {
-    pub fn packet_handler_wrapper() -> *mut c_void;
+    pub fn packet_handler_wrapper() -> PacketInfo;
     pub fn uknetdev_output_wrapper(packet: *mut c_void);
 }
 
@@ -351,69 +352,27 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
 
     pub unsafe fn uk_recv(stack: &mut Stack<DeviceT>, port: u8) -> u8 {
         /* Get a packet from uknetdev */
-        let packet = packet_handler_wrapper();
+        let mut packet = packet_handler_wrapper();
 
-        let eth_hdr = &mut {
-            *(packet as *mut ether_header)
-        };
+        let buf = std::slice::from_raw_parts_mut(packet.packet as *mut u8, packet.size as usize);
+        println!("\n\n\nCOD RUST PACKET_SIZE {}\n\n\n", packet.size);
+        //let payload_buf = &buf_clone[packet_size - payload_size..packet_size];
+        //println!("{:x?}", payload_buf);
 
-        /* eth_hdr.ether_type is 8 for IPv4 encapsulated package and 56710 for IPv6 */
-        if eth_hdr.ether_type == ETH_IPV4 {
-            println!("ETHERNET {:?} {:?}", eth_hdr.ether_shost, eth_hdr.ether_dhost);
-            let ip_hdr = &mut {
-                *(packet.add(ETH_HEADER_SIZE)
-                    as *mut iphdr)
-            };
+        println!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &buf));
 
-            /* ip_hdr.protocol is 17 (0x11) for UDP packages */
-            if ip_hdr.protocol == PROTO_UDP {
-                println!("UDP PACKET!!!!");
-                let udp_hdr = &mut {
-                    *(packet.add(ETH_HEADER_SIZE).
-                        add(IP_HEADER_SIZE)
-                        as *mut udphdr)
-                };
-
-                /* Convert an u32 number to [u8; 4] array and then make an Ipv4Addres out of it */
-                let saddr = Ipv4Address(ip_hdr.saddr.to_le_bytes());
-                let daddr = Ipv4Address(ip_hdr.daddr.to_le_bytes());
-                println!("SRC_ADDR {:?} DST_ADDR {:?}", saddr, daddr);
-
-                /* We need to swap bytes, to account for network byte order */
-                let src_port = udp_hdr.source.swap_bytes();
-                let dst_port = udp_hdr.dest.swap_bytes();
-                let length = udp_hdr.len.swap_bytes();
-                println!("UDP Ports {} {} length {}", src_port, dst_port, length);
-                let handle = stack.handle_map.get(&port);
-                let ret = match handle {
-                    None => { 1 }
-                    Some(_) => {
-                        let payload_size = (length - 8) as usize;
-                        let packet_size = ETH_HEADER_SIZE + IP_HEADER_SIZE + UDP_HEADER_SIZE + payload_size;
-
-                        /* Get a Rust buffer from the packet; we're only interested in the last
-                         * `payload_size` bytes
-                         */
-                        let buf = std::slice::from_raw_parts_mut(packet as *mut u8, packet_size);
-                        let payload_buf = &buf[packet_size - payload_size..packet_size];
-                        println!("{:x?}", payload_buf);
-
-                        let repr = UdpRepr {
-                            src_port,
-                            dst_port,
-                            payload: payload_buf
-                        };
-                        let mut bytes = payload_buf;
-                        let mut packet = UdpPacket::new_unchecked(&mut bytes);
-                        // repr.emit(&mut packet, &saddr.into(), &daddr.into(),
-                        //          &ChecksumCapabilities::default());
-
-                        Stack::send(stack, port, std::str::from_utf8(payload_buf).unwrap())
-                    }
-                };
-
-                return ret
+        let mut eth_frame = EthernetFrame::new_unchecked(buf);
+        println!("{}", eth_frame);
+        match eth_frame.ethertype() {
+            EthernetProtocol::Ipv4 => {
+                let mut ip_frame = Ipv4Packet::new_unchecked(eth_frame.payload_mut());
+                match ip_frame.protocol() {
+                    IpProtocol::Tcp => {}
+                    IpProtocol::Udp => {}
+                    _ => {}
+                }
             }
+            _ => {}
         }
         0
     }

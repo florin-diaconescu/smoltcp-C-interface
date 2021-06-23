@@ -23,6 +23,11 @@ typedef struct SmolSocket {
     uint8_t sockfd;
 } SmolSocket;
 
+struct PacketInfo {
+    void *packet;
+    uint16_t size;
+};
+
 typedef struct smoltcp_stack smoltcp_stack_t;
 
 // function definitions
