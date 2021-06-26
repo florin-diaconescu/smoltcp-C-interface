@@ -117,59 +117,6 @@ void print_ip(uint32_t ip)
     fprintf(stderr, "%d.%d.%d.%d\n", bytes[0], bytes[1], bytes[2], bytes[3]);
 }
 
-
-static void inline prepare_packet(struct uk_netbuf *nb)
-{
-
-	struct ether_header *eth_header;
-	struct iphdr *ip_hdr;
-	struct udphdr *udp_hdr;
-
-
-	eth_header = (struct ether_header *) nb->data;
-	// IPv4 is encapsulated
-	if (eth_header->ether_type == 8) {
-		ip_hdr = (struct iphdr *)((char *)nb->data + sizeof(struct ether_header));
-
-		// If IP protocol is UDP
-		if (ip_hdr->protocol == 0x11) {
-			ip_hdr = (struct iphdr *)((char *)nb->data + sizeof(struct ether_header));
-			udp_hdr = (struct udphdr *)((char *)nb->data + sizeof(struct ether_header) + sizeof(struct iphdr));
-			// fprintf(stderr, "\nshost: ");
-			// for (int i = 0; i < 6; i++) {
-			// 	fprintf(stderr, "%d ", eth_header->ether_shost[i]);
-			// }
-			// fprintf(stderr, "\ndhost: ");
-			// for (int i = 0; i < 6; i++) {
-			// 	fprintf(stderr, "%d ", eth_header->ether_dhost[i]);
-			// }
-			// fprintf(stderr, "\n");
-			// print_ip(ip_hdr->saddr);
-			// print_ip(ip_hdr->daddr);
-			// fprintf(stderr, "saddr: %d daddr: %d\n", udp_hdr->source, udp_hdr->dest);
-			/* Switch MAC */
-			uint8_t tmp[6];
-			memcpy(tmp, eth_header->ether_dhost, 6);
-			memcpy(eth_header->ether_dhost, eth_header->ether_shost, 6);
-			memcpy(eth_header->ether_shost, tmp, 6);
-
-			/* Switch IP addresses */
-			ip_hdr->saddr ^= ip_hdr->daddr;
-			ip_hdr->daddr ^= ip_hdr->saddr;
-			ip_hdr->saddr ^= ip_hdr->daddr;
-
-			/* switch UDP PORTS */
-			udp_hdr->source ^= udp_hdr->dest;
-			udp_hdr->dest ^= udp_hdr->source;
-			udp_hdr->source ^= udp_hdr->dest;
-
-			/* No checksum requiered, they are 16 bits and
-			 * switching them does not influence the checsum
-			 * */
-		}
-	}
-}
-
 static inline void uknetdev_output(struct uk_netdev *dev, struct uk_netbuf *nb)
 {
 	int ret;
@@ -183,47 +130,33 @@ static inline void uknetdev_output(struct uk_netdev *dev, struct uk_netbuf *nb)
 	}
 }
 
-void uknetdev_output_wrapper (void *new_data) {
-	struct ether_header *eth_header;
-	struct iphdr *ip_hdr;
-	struct udphdr *udp_hdr;
+void uknetdev_output_wrapper (struct PacketInfo packet) {
+    struct ether_header *eth_header;
+    struct iphdr *ip_hdr;
+    struct udphdr *udp_hdr;
 
-	eth_header = (struct ether_header *) netbuf->data;
-	// IPv4 is encapsulated
-	if (eth_header->ether_type == 8) {
-		ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
+    eth_header = (struct ether_header *) packet.packet;
+    fprintf(stderr, "\nETHER_TYPE %d\n", eth_header->ether_type);
+    struct uk_alloc *a = uk_alloc_get_default();
+    assert(a != NULL);
 
-		// If IP protocol is UDP
-		if (ip_hdr->protocol == 0x11) {
-			ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
-			udp_hdr = (struct udphdr *)((char *)netbuf->data + sizeof(struct ether_header) + sizeof(struct iphdr));
-			fprintf(stderr, "INAINTE !!! %d %d\n", udp_hdr->source, udp_hdr->dest);
-		}
-	}
-	memcpy(netbuf->data, new_data, sizeof(new_data));
+    /* [libkvmvirtionet] virtio_net.c @ 366  : Failed to prepend virtio header
+     * We should alloc headroom for struct virtio_net_hdr_padded, meaning
+     * sizeof struct virtio_net_hdr (equal to 10 bytes) + 4 bytes of padding
+     * Total: 14 bytes. We alloc buffer area size for MTU + virtio header
+     */
+    //struct uk_netbuf *nb = uk_netbuf_alloc_buf(a, 1514, 14, 0, NULL);
+    struct uk_netbuf *nb = alloc_netbuf(a, 1514, tx_headroom);
+    assert (nb != NULL);
 
-	eth_header = (struct ether_header *) new_data;
-	// IPv4 is encapsulated
-	//if (eth_header->ether_type == 8) {
-		ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
-
-		// If IP protocol is UDP
-		if (ip_hdr->protocol == 0x11) {
-			ip_hdr = (struct iphdr *)((char *)netbuf->data + sizeof(struct ether_header));
-			udp_hdr = (struct udphdr *)((char *)netbuf->data + sizeof(struct ether_header) + sizeof(struct iphdr));
-			fprintf(stderr, "DUPA !!! %d %d\n", udp_hdr->source, udp_hdr->dest);
-		}
-	//}
-	else fprintf(stderr, "DUPA !!! %d\n", eth_header->ether_type);
-	uknetdev_output(dev, netbuf);
+    memcpy(nb->data, packet.packet, packet.size);
+    fprintf(stderr, "SIZE %x %x\n", ((char *)nb->data)[0],((char *)nb->data)[1]);
+	uknetdev_output(dev, nb);
 }
 
 static inline struct PacketInfo packet_handler(struct uk_netdev *dev,
 		uint16_t queue_id __unused, void *argp)
 {
-
-	struct ether_header *eth_header;
-	struct iphdr *ip_hdr;
 	int ret;
 	struct uk_netbuf *nb;
 	struct PacketInfo pi;
@@ -355,10 +288,10 @@ int main(int argc, char *argv[])
     smoltcp_bind(uk_stack, client, 4321);
 
 	while (1) {
-		ret = smoltcp_uk_recv(uk_stack, server);
-		fprintf(stderr, "Handler done!");
-        smoltcp_uk_send(uk_stack, netbuf->data);
-        fprintf(stderr, "Uknetdev_outputed!");
+		smoltcp_uk_recv(uk_stack);
+		//fprintf(stderr, "Handler done!");
+        //smoltcp_uk_send(uk_stack, netbuf->data);
+        //fprintf(stderr, "Uknetdev_outputed!");
 	}
 
 	destroy_stack(uk_stack);

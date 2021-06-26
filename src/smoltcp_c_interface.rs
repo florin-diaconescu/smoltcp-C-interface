@@ -402,7 +402,7 @@ pub extern "C" fn smoltcp_recv(stack: *mut StackType, socket: u8) -> u8 {
 }
 
 #[no_mangle]
-pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType, port: u8) -> u8 {
+pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType) -> u8 {
     let stack = unsafe {
         assert!(!stack.is_null());
         &mut *stack
@@ -416,7 +416,7 @@ pub extern "C" fn smoltcp_uk_recv(stack: *mut StackType, port: u8) -> u8 {
             1
         },
         StackType::UkNetdevInterface(stack) => unsafe {
-            Stack::uk_recv(stack, port)
+            Stack::uk_recv(stack)
         }
     }
 }

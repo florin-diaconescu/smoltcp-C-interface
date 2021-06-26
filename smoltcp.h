@@ -75,7 +75,7 @@ extern uint8_t smoltcp_uk_send(smoltcp_stack_t *stack, void *message);
 
 extern uint8_t smoltcp_recv(smoltcp_stack_t *stack, uint8_t socket);
 
-extern uint8_t smoltcp_uk_recv(smoltcp_stack_t *stack, uint8_t socket);
+extern uint8_t smoltcp_uk_recv(smoltcp_stack_t *stack);
 
 extern uint8_t smoltcp_close(smoltcp_stack_t *stack, uint8_t socket);
 

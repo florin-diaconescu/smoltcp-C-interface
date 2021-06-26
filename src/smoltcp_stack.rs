@@ -14,7 +14,7 @@ use std::collections::{HashMap, BTreeMap};
 use nohash::{NoHashHasher, BuildNoHashHasher};
 use std::hash::BuildHasherDefault;
 use smoltcp::phy::{TunTapInterface, Loopback, ChecksumCapabilities};
-use std::io::Error;
+use std::io::{Error, Read};
 use std::borrow::{Borrow, BorrowMut};
 use smoltcp::iface::Interface;
 use std::mem;
@@ -32,7 +32,7 @@ use smoltcp::phy::Medium::Ethernet;
 
 extern "C" {
     pub fn packet_handler_wrapper() -> PacketInfo;
-    pub fn uknetdev_output_wrapper(packet: *mut c_void);
+    pub fn uknetdev_output_wrapper(packet: PacketInfo);
 }
 
 mod mock {
@@ -205,7 +205,7 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
     pub fn build_interface(stack: &mut Stack<DeviceT>) -> u8 {
         stack.neigh_cache = Some(NeighborCache::new(BTreeMap::new()));
         let iface = InterfaceBuilder::new(stack.device.take().unwrap())
-            .ethernet_addr(EthernetAddress::default())
+            .ethernet_addr(stack.eth_addr)
             .neighbor_cache(stack.neigh_cache.take().unwrap())
             .ip_addrs(stack.ip_addrs.clone())
             .finalize();
@@ -346,23 +346,23 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
 
     /* uknetdev_output equivalent */
     pub unsafe fn uk_send(stack: &mut Stack<DeviceT>, packet: *mut c_void) -> u8 {
-        uknetdev_output_wrapper(packet);
+        //uknetdev_output_wrapper(packet);
         1
     }
 
-    pub unsafe fn uk_recv(stack: &mut Stack<DeviceT>, port: u8) -> u8 {
+    pub unsafe fn uk_recv(stack: &mut Stack<DeviceT>) -> u8 {
         /* Get a packet from uknetdev */
         let mut packet = packet_handler_wrapper();
 
         let buf = std::slice::from_raw_parts_mut(packet.packet as *mut u8, packet.size as usize);
-        println!("\n\n\nCOD RUST PACKET_SIZE {}\n\n\n", packet.size);
+        //println!("\n\n\nCOD RUST PACKET_SIZE {}\n\n\n", packet.size);
         //let payload_buf = &buf_clone[packet_size - payload_size..packet_size];
         //println!("{:x?}", payload_buf);
 
-        println!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &buf));
+        //println!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &buf));
 
         let mut eth_frame = EthernetFrame::new_unchecked(buf);
-        println!("{}", eth_frame);
+        //println!("{}", eth_frame);
         match eth_frame.ethertype() {
             EthernetProtocol::Ipv4 => {
                 let mut ip_frame = Ipv4Packet::new_unchecked(eth_frame.payload_mut());
@@ -373,6 +373,17 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
                 }
             }
             _ => {}
+        }
+        if stack.iface.as_ref().unwrap().ethernet_addr() == eth_frame.dst_addr() {
+            println!("ETHERNET ADDRESS! {:?}", stack.iface.as_ref().unwrap().ethernet_addr());
+            // let temp = eth_frame.src_addr();
+            // eth_frame.set_src_addr(eth_frame.dst_addr());
+            // eth_frame.set_dst_addr(temp);
+            // println!("{:?} {:?}", eth_frame.src_addr(), eth_frame.dst_addr());
+            // let mut bytes = eth_frame.as_ref().bytes();
+            // let bytes_c_void = &mut bytes as *mut _ as *mut c_void;
+            // packet.packet = bytes_c_void;
+            uknetdev_output_wrapper(packet);
         }
         0
     }
@@ -401,10 +412,10 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
     }
 }
 
-pub unsafe fn send_udp_packet(mut udp_packet: udp_packet) {
-    let udp_ptr = &mut udp_packet as *mut _ as *mut c_void;
-    uknetdev_output_wrapper(udp_ptr);
-}
+// pub unsafe fn send_udp_packet(mut udp_packet: udp_packet) {
+//     let udp_ptr = &mut udp_packet as *mut _ as *mut c_void;
+//     uknetdev_output_wrapper(udp_ptr);
+// }
 
 pub struct SmolSocket {
     pub(crate) socket_type: SocketType,
