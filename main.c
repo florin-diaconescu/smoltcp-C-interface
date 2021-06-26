@@ -131,12 +131,6 @@ static inline void uknetdev_output(struct uk_netdev *dev, struct uk_netbuf *nb)
 }
 
 void uknetdev_output_wrapper (struct PacketInfo packet) {
-    struct ether_header *eth_header;
-    struct iphdr *ip_hdr;
-    struct udphdr *udp_hdr;
-
-    eth_header = (struct ether_header *) packet.packet;
-    fprintf(stderr, "\nETHER_TYPE %d\n", eth_header->ether_type);
     struct uk_alloc *a = uk_alloc_get_default();
     assert(a != NULL);
 
@@ -150,7 +144,7 @@ void uknetdev_output_wrapper (struct PacketInfo packet) {
     assert (nb != NULL);
 
     memcpy(nb->data, packet.packet, packet.size);
-    fprintf(stderr, "SIZE %x %x\n", ((char *)nb->data)[0],((char *)nb->data)[1]);
+
 	uknetdev_output(dev, nb);
 }
 
@@ -171,7 +165,7 @@ back:
     netbuf = nb;
 
     pi.packet = nb->data;
-    pi.size = nb->len - 1;
+    pi.size = nb->len;
 
 	return pi;
 }

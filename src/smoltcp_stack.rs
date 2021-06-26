@@ -359,30 +359,40 @@ impl<'a, 'b, 'c, DeviceT> Stack<'a, 'b, DeviceT>
         //let payload_buf = &buf_clone[packet_size - payload_size..packet_size];
         //println!("{:x?}", payload_buf);
 
-        //println!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &buf));
+        println!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &buf));
 
-        let mut eth_frame = EthernetFrame::new_unchecked(buf);
+        let mut eth_frame = EthernetFrame::new_checked(buf).unwrap();
         //println!("{}", eth_frame);
-        match eth_frame.ethertype() {
-            EthernetProtocol::Ipv4 => {
-                let mut ip_frame = Ipv4Packet::new_unchecked(eth_frame.payload_mut());
-                match ip_frame.protocol() {
-                    IpProtocol::Tcp => {}
-                    IpProtocol::Udp => {}
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
+
         if stack.iface.as_ref().unwrap().ethernet_addr() == eth_frame.dst_addr() {
-            println!("ETHERNET ADDRESS! {:?}", stack.iface.as_ref().unwrap().ethernet_addr());
-            // let temp = eth_frame.src_addr();
-            // eth_frame.set_src_addr(eth_frame.dst_addr());
-            // eth_frame.set_dst_addr(temp);
-            // println!("{:?} {:?}", eth_frame.src_addr(), eth_frame.dst_addr());
-            // let mut bytes = eth_frame.as_ref().bytes();
-            // let bytes_c_void = &mut bytes as *mut _ as *mut c_void;
-            // packet.packet = bytes_c_void;
+            let temp = eth_frame.src_addr();
+            eth_frame.set_src_addr(eth_frame.dst_addr());
+            eth_frame.set_dst_addr(temp);
+
+            match eth_frame.ethertype() {
+                EthernetProtocol::Ipv4 => {
+                    let mut ip_frame = Ipv4Packet::new_checked(eth_frame.payload_mut()).unwrap();
+                    let temp = ip_frame.src_addr();
+                    ip_frame.set_src_addr(ip_frame.dst_addr());
+                    ip_frame.set_dst_addr(temp);
+                    match ip_frame.protocol() {
+                        IpProtocol::Tcp => {}
+                        IpProtocol::Udp => {
+                            let mut udp_frame = UdpPacket::new_checked(ip_frame.payload_mut()).unwrap();
+                            let temp = udp_frame.src_port();
+                            udp_frame.set_src_port(udp_frame.dst_port());
+                            udp_frame.set_dst_port(temp);
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+
+            let mut bytes = eth_frame.into_inner();
+            println!("{}", PrettyPrinter::<EthernetFrame<&'static [u8]>>::new("", &bytes));
+            let bytes_c_void = bytes.as_mut_ptr() as *mut c_void;
+            packet.packet = bytes_c_void;
             uknetdev_output_wrapper(packet);
         }
         0
